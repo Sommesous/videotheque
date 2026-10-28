@@ -1171,7 +1171,7 @@ async function runAi(auto){
       body: JSON.stringify({caption, url: link, categories: catNames().filter(c=>c!==UNCAT)}), signal: ctrl.signal});
     clearTimeout(to);
     const data = await res.json().catch(()=>({}));
-    if(!res.ok || data.error) throw new Error(aiErrorMessage(data.error, data.status||res.status));
+    if(!res.ok || data.error){ const m=aiErrorMessage(data.error, data.status||res.status); throw new Error(data.detail ? m+" Détail : "+String(data.detail).slice(0,300) : m); }
     applyAiResult(data);
     showMsg("Proposition de l'IA : « "+(data.title||"sans titre")+" » dans "+(data.category||"ta catégorie actuelle")+". Modifie ce que tu veux avant d'ajouter.","ok","aiMsg");
   }catch(e){
