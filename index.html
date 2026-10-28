@@ -274,7 +274,7 @@ input[type=file].hide{display:none}
     <label class="stack"><span class="label">Lien</span><input class="field" type="url" id="url" placeholder="Colle le lien de la vidéo" autocomplete="off"></label>
     <span class="detected" id="detected" hidden></span>
     <div class="ai-row" id="aiRow" hidden>
-      <textarea class="field" id="caption" rows="2" placeholder="Colle la légende : l'IA remplit la fiche (facultatif)"></textarea>
+      <textarea class="field" id="caption" rows="2" placeholder="Si l'IA ne lit pas la vidéo : colle sa légende ici"></textarea>
       <button class="btn" type="button" id="aiBtn">Analyser</button>
     </div>
     <p class="msg" id="aiMsg" hidden></p>
@@ -844,7 +844,7 @@ function openAdd(prefill){
   editing=null; resetForm();
   $("addTitle").innerHTML='Nouvelle <span class="gold-i">envie</span>'; $("addSubmit").textContent="Ajouter à ma collection";
   if(prefill){ $("url").value=prefill.url||""; if(prefill.title) $("title").value=prefill.title; }
-  renderCatPick(); renderDraftThumb(); updateDetected(); openSheet("addOverlay");
+  renderCatPick(); renderDraftThumb(); updateDetected(); openSheet("addOverlay"); aiAutoUrl=""; autoAi();
 }
 function openEdit(v){
   editing=v.id; resetForm();
@@ -1139,30 +1139,41 @@ function setupAi(url){
   aiWorkerUrl = (url||"").trim();
   $("aiRow").hidden = !aiWorkerUrl;
   $("aiStatus").textContent = aiWorkerUrl
-    ? "Activée. Dans « Nouvelle envie », colle la légende de la vidéo puis touche « Analyser »."
+    ? "Activée. Colle un lien dans « Nouvelle envie » : l'IA propose un titre et une catégorie. Si elle n'arrive pas à lire la vidéo, colle sa légende puis touche « Analyser »."
     : "Désactivée. Renseigne aiWorkerUrl dans config.js pour l'activer (facultatif, voir LISEZ-MOI.md).";
 }
 function aiErrorMessage(code,status){
   if(code==="origine_refusee") return "Le relais refuse cette adresse. Vérifie ALLOWED_ORIGIN dans Cloudflare.";
+  if(code==="lecture_impossible") return "Je n'arrive pas à lire cette vidéo depuis le lien (fréquent sur Facebook et Instagram). Colle sa légende ci-dessous puis touche « Analyser ».";
   if(code==="cle_absente") return "La clé Gemini n'est pas configurée sur le relais.";
   if(code==="gemini_erreur" && status===429) return "Quota gratuit Gemini atteint pour l'instant. Réessaie plus tard, ou remplis la fiche à la main.";
   if(code==="gemini_erreur"||code==="gemini_injoignable") return "Gemini est momentanément indisponible.";
   if(!navigator.onLine) return "Pas de connexion Internet.";
   return "Analyse impossible pour l'instant.";
 }
-async function runAi(){
+let aiAutoUrl = "", aiTimer = null;
+function autoAi(){
+  clearTimeout(aiTimer);
+  if(!aiWorkerUrl || editing) return;
+  const raw = extractUrl($("url").value)||"";
+  if(!raw || raw===aiAutoUrl || parseLink(raw).error || $("title").value.trim()) return;
+  aiTimer = setTimeout(()=>{ aiAutoUrl = raw; runAi(true); }, 500);
+}
+async function runAi(auto){
   const caption = $("caption").value.trim();
-  if(!caption){ showMsg("Colle d'abord une légende à analyser.","err","aiMsg"); return; }
-  const btn=$("aiBtn"); btn.disabled=true; btn.textContent="Analyse…"; showMsg("","","aiMsg");
+  const link = extractUrl($("url").value)||"";
+  if(!caption && !link){ showMsg("Colle d'abord le lien ou la légende de la vidéo.","err","aiMsg"); return; }
+  const btn=$("aiBtn"); if(btn.disabled) return; btn.disabled=true; btn.textContent="Analyse…";
+  showMsg(auto ? "L'IA regarde la vidéo…" : "","ok","aiMsg");
   try{
     const ctrl = new AbortController(); const to = setTimeout(()=>ctrl.abort(),20000);
     const res = await fetch(aiWorkerUrl, {method:"POST",headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({caption, categories: catNames().filter(c=>c!==UNCAT)}), signal: ctrl.signal});
+      body: JSON.stringify({caption, url: link, categories: catNames().filter(c=>c!==UNCAT)}), signal: ctrl.signal});
     clearTimeout(to);
     const data = await res.json().catch(()=>({}));
     if(!res.ok || data.error) throw new Error(aiErrorMessage(data.error, data.status||res.status));
     applyAiResult(data);
-    showMsg("Analysée comme « "+(KIND[data.kind]||"Vidéo")+" ». Vérifie avant d'ajouter.","ok","aiMsg");
+    showMsg("Proposition de l'IA : « "+(data.title||"sans titre")+" » dans "+(data.category||"ta catégorie actuelle")+". Modifie ce que tu veux avant d'ajouter.","ok","aiMsg");
   }catch(e){
     showMsg(e.name==="AbortError" ? "L'analyse a pris trop de temps. Réessaie." : (e.message||"Analyse impossible."),"err","aiMsg");
   }finally{ btn.disabled=false; btn.textContent="Analyser"; }
@@ -1197,7 +1208,7 @@ $("grid").addEventListener("error",e=>{ if(e.target.tagName==="IMG"){ const th=e
 $("sync").addEventListener("click",()=>{ syncError=""; outbox.length ? flush() : pull(); });
 
 $("addForm").addEventListener("submit",submitForm);
-$("url").addEventListener("input",()=>{ updateDetected(); if(draft && draft.mode==="yt") renderDraftThumb(); });
+$("url").addEventListener("input",()=>{ updateDetected(); if(draft && draft.mode==="yt") renderDraftThumb(); autoAi(); });
 $("kinds").addEventListener("click",e=>{ const b=e.target.closest("button[data-k]"); if(b) setFormKind(b.dataset.k); });
 $("catPick").addEventListener("click",e=>{
   if(e.target.closest("#newCatBtn")){ $("newCatRow").hidden=false; $("newCat").focus(); return; }

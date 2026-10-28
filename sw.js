@@ -1,6 +1,6 @@
 // Service worker : garde l'application disponible hors connexion.
 // Les échanges avec Supabase ne passent pas par ici (autre domaine).
-const CACHE = "videotheque-sync-v3";
+const CACHE = "videotheque-sync-v4";
 const FILES = ["./", "./index.html", "./config.js", "./lib/supabase.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-maskable-512.png", "./icons/apple-touch-icon.png"];
 
