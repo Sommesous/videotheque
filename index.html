@@ -337,11 +337,14 @@ input[type=file].hide{display:none}
     <label class="zoom" id="zoomRow" hidden>Zoom<input type="range" id="zoom" min="1" max="4" step="0.01" value="1" aria-label="Zoom"></label>
     <ol class="steps" id="thumbSteps">
       <li><b>1</b>Mets la vidéo en pause au moment voulu</li>
-      <li><b>2</b>Fais une capture d'écran</li>
-      <li><b>3</b>Importe-la ici et recadre</li>
+      <li><b>2</b>Fais une capture d'écran (sur PC : Windows + Maj + S)</li>
+      <li><b>3</b>Colle-la ici (Ctrl+V ou « Coller ») et recadre</li>
     </ol>
-    <label class="btn" for="thumbFile" id="thumbFileBtn">
+    <div id="thumbBtns" style="display:flex;gap:8px">
+    <button class="btn gold" type="button" id="thumbPaste" style="flex:1"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"></rect><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path></svg><span>Coller</span></button>
+    <label class="btn" for="thumbFile" id="thumbFileBtn" style="flex:1">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.6"></circle><path d="M21 16l-5-5-8 8"></path></svg><span id="thumbFileTxt">Choisir une capture</span></label>
+    </div>
     <input class="hide" type="file" id="thumbFile" accept="image/*">
     <label class="timefield">
       <span class="stack" style="gap:2px">Moment de la vidéo<span class="sub" id="timeHint">Sur YouTube, la vidéo s'ouvrira à cet instant</span></span>
@@ -837,7 +840,7 @@ function renderDraftThumb(){
 function resetForm(){
   ["url","title","note","ingredients","price","address","caption","newCat"].forEach(id=>$(id).value="");
   $("url").disabled=false; $("detected").hidden=true; $("newCatRow").hidden=true; $("aiMsg").hidden=true; showMsg("","","addMsg");
-  draft=null; setFormKind("video");
+  draft=null; aiTitle=""; setFormKind("video");
   formCat = ui.cat && ui.cat!==UNCAT ? ui.cat : (catNames().filter(c=>c!==UNCAT)[0]||"");
 }
 function openAdd(prefill){
@@ -996,7 +999,7 @@ function setTsrc(s){
   tsrc = s;
   $$("#thumbSrc button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.src===s));
   const cap = s==="capture";
-  $("thumbSteps").hidden = !cap; $("thumbFileBtn").hidden = !cap;
+  $("thumbSteps").hidden = !cap; $("thumbBtns").hidden = !cap; $("thumbBtns").style.display = cap ? "flex" : "none";
   if(s==="yt"){
     const id = (tctx.key||"").slice(3);
     showPlain(`https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg`, "Image fournie par YouTube (non recadrable)");
@@ -1085,7 +1088,9 @@ async function saveThumb(){
     if(tctx.ctx==="draft"){
       if(tsrc==="capture") draft = blob ? {mode:"capture", blob, preview, start} : (draft && draft.mode==="capture" ? {...draft, start} : {mode:"keep", start});
       else draft = {mode:tsrc, start};
-      renderDraftThumb(); closeSheet("thumbOverlay"); return;
+      renderDraftThumb(); closeSheet("thumbOverlay");
+      if(aiWorkerUrl && !editing && blob) runAi(true);
+      return;
     }
     const v = state.videos.find(x=>x.id===tctx.id); if(!v){ closeSheet("thumbOverlay"); return; }
     if(tsrc==="capture" && blob){
@@ -1108,6 +1113,28 @@ async function saveThumb(){
 }
 $("thumbSrc").addEventListener("click",e=>{ const b=e.target.closest("button[data-src]"); if(b && !b.disabled) setTsrc(b.dataset.src); });
 $("thumbFile").addEventListener("change",e=>{ setTsrc("capture"); loadCapture(e.target.files[0]); });
+function imageFromClipboardData(dt){
+  if(!dt) return null;
+  for(const it of dt.items||[]) if(it.kind==="file" && /^image\//.test(it.type)) return it.getAsFile();
+  return null;
+}
+async function pasteCapture(){
+  try{
+    if(!navigator.clipboard || !navigator.clipboard.read) throw new Error("api");
+    const items = await navigator.clipboard.read();
+    for(const it of items){ const t = it.types.find(x=>/^image\//.test(x)); if(t){ const b = await it.getType(t); setTsrc("capture"); loadCapture(new File([b],"capture."+(t.split("/")[1]||"png"),{type:t})); return; } }
+    showMsg("Aucune image dans le presse-papiers. Fais d'abord une capture (Windows + Maj + S), puis réessaie.","err","thumbMsg");
+  }catch(e){
+    showMsg(e.message==="api" ? "Ton navigateur ne permet pas ce bouton : appuie sur Ctrl+V à la place." : "Collage refusé. Appuie sur Ctrl+V, ou autorise l'accès au presse-papiers.","err","thumbMsg");
+  }
+}
+$("thumbPaste").addEventListener("click",pasteCapture);
+// Ctrl+V d'une image : dans la feuille miniature, ou directement dans « Nouvelle envie »
+document.addEventListener("paste",e=>{
+  const f = imageFromClipboardData(e.clipboardData); if(!f) return;
+  if(!$("thumbOverlay").hidden){ e.preventDefault(); setTsrc("capture"); loadCapture(f); return; }
+  if(!$("addOverlay").hidden){ e.preventDefault(); openThumb({ctx:"draft"}); setTsrc("capture"); loadCapture(f); }
+});
 $("thumbSave").addEventListener("click",saveThumb);
 
 /* =========================================================
@@ -1151,7 +1178,11 @@ function aiErrorMessage(code,status){
   if(!navigator.onLine) return "Pas de connexion Internet.";
   return "Analyse impossible pour l'instant.";
 }
-let aiAutoUrl = "", aiTimer = null;
+let aiAutoUrl = "", aiTimer = null, aiTitle = "";
+function draftImageB64(){
+  if(!(draft && draft.mode==="capture" && draft.blob)) return Promise.resolve("");
+  return new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]||""); r.onerror=()=>res(""); r.readAsDataURL(draft.blob); });
+}
 function autoAi(){
   clearTimeout(aiTimer);
   if(!aiWorkerUrl || editing) return;
@@ -1162,13 +1193,14 @@ function autoAi(){
 async function runAi(auto){
   const caption = $("caption").value.trim();
   const link = extractUrl($("url").value)||"";
-  if(!caption && !link){ showMsg("Colle d'abord le lien ou la légende de la vidéo.","err","aiMsg"); return; }
+  const hasImg = !!(draft && draft.mode==="capture" && draft.blob);
+  if(!caption && !link && !hasImg){ showMsg("Colle d'abord le lien, la légende ou une capture de la vidéo.","err","aiMsg"); return; }
   const btn=$("aiBtn"); if(btn.disabled) return; btn.disabled=true; btn.textContent="Analyse…";
-  showMsg(auto ? "L'IA regarde la vidéo…" : "","ok","aiMsg");
+  showMsg(auto ? (hasImg ? "L'IA regarde ta capture…" : "L'IA lit la vidéo…") : "","ok","aiMsg");
   try{
     const ctrl = new AbortController(); const to = setTimeout(()=>ctrl.abort(),20000);
     const res = await fetch(aiWorkerUrl, {method:"POST",headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({caption, url: link, categories: catNames().filter(c=>c!==UNCAT)}), signal: ctrl.signal});
+      body: JSON.stringify({caption, url: link, image: await draftImageB64(), categories: catNames().filter(c=>c!==UNCAT)}), signal: ctrl.signal});
     clearTimeout(to);
     const data = await res.json().catch(()=>({}));
     if(!res.ok || data.error){ const m=aiErrorMessage(data.error, data.status||res.status); throw new Error(data.detail ? m+" Détail : "+String(data.detail).slice(0,300) : m); }
@@ -1181,7 +1213,8 @@ async function runAi(auto){
 function applyAiResult(d){
   const kind = KIND[d.kind] ? d.kind : "video";
   setFormKind(kind);
-  if(d.title && !$("title").value.trim()) $("title").value = String(d.title).slice(0,90);
+  const curT = $("title").value.trim();
+  if(d.title && (!curT || curT===aiTitle)){ aiTitle = String(d.title).slice(0,90); $("title").value = aiTitle; }
   if(kind==="recipe" && d.ingredients) $("ingredients").value = String(d.ingredients).slice(0,1000);
   if(kind==="product" && d.price) $("price").value = String(d.price).slice(0,60);
   if(kind==="place" && d.address) $("address").value = String(d.address).slice(0,160);
