@@ -6,7 +6,6 @@ window.VIDEOTHEQUE_CONFIG = {
   supabaseUrl: "https://dfrlyncqcnypcfcrclje.supabase.co",
   supabaseKey: "sb_publishable_L6c6uzB6l1JRN07HDGzIyA_mFwNr1hv",
 
-  // Facultatif : adresse de ton relais Cloudflare Worker (voir LISEZ-MOI.md,
-  // section « Analyse automatique »). Laisse vide pour classer tout à la main.
-  aiWorkerUrl: ""    // ex. "https://videotheque-ia.ton-pseudo.workers.dev"
+  // Relais Cloudflare Worker pour l'IA Gemini
+  aiWorkerUrl: "https://videotheque-ia.torios7.workers.dev"
 };
