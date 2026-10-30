@@ -370,7 +370,7 @@ input[type=file].hide{display:none}
     </div>
     <div class="section">
       <span class="label">Ajouter depuis le navigateur du PC</span>
-      <p class="sub">Glisse ce bouton dans ta barre de favoris. Sur une page YouTube, TikTok, Instagram ou Facebook, clique dessus : la vidéo s'ouvre ici, prête à classer.</p>
+      <p class="sub">Glisse ce bouton dans ta barre de favoris. Sur une page YouTube, TikTok, Instagram ou Facebook, clique dessus : la vidéo s'ouvre ici et l'IA propose un titre et une catégorie. Astuce : sélectionne d'abord la légende de la vidéo à la souris, l'IA la lira aussi.</p>
       <a class="bookmarklet" id="bookmarklet" href="#">＋ Vidéothèque</a>
     </div>
     <div class="section">
@@ -532,6 +532,15 @@ function applyLocal(op){
     if(!state.categories.some(c=>c.name===op.name)) state.categories.push({name:op.name,position:op.position,color:op.color||""});
   } else if(op.t==="ccolor"){
     const c = state.categories.find(c=>c.name===op.name); if(c) c.color = op.color;
+  } else if(op.t==="cren"){
+    const from = state.categories.find(c=>c.name===op.from);
+    const to = state.categories.find(c=>c.name===op.to);
+    if(from && !to) from.name = op.to;
+    else if(from && to) state.categories = state.categories.filter(c=>c!==from);
+    else if(!to) state.categories.push({name:op.to,position:op.position,color:op.color||""});
+    state.videos.forEach(v=>{ if(v.category===op.from) v.category=op.to; });
+    if(ui.cat===op.from) ui.cat=op.to;
+    if(formCat===op.from) formCat=op.to;
   } else if(op.t==="cdel"){
     state.categories = state.categories.filter(c=>c.name!==op.name);
     state.videos.forEach(v=>{ if(v.category===op.name) v.category=UNCAT; });
@@ -566,6 +575,14 @@ async function sendOp(op){
     return error;
   }
   if(op.t==="ccolor"){ const {error} = await sb.from("categories").update({color:op.color}).eq("name", op.name); return error; }
+  if(op.t==="cren"){
+    let {error} = await sb.from("categories").upsert({name:op.to, position:op.position, color:op.color||""}, {onConflict:"user_id,name", ignoreDuplicates:true});
+    if(error) return error;
+    ({error} = await sb.from("videos").update({category:op.to, updated_at:new Date().toISOString()}).eq("category", op.from));
+    if(error) return error;
+    ({error} = await sb.from("categories").delete().eq("name", op.from));
+    return error;
+  }
   if(op.t==="cdel"){
     let {error} = await sb.from("videos").update({category:UNCAT, updated_at:new Date().toISOString()}).eq("category", op.name);
     if(error) return error;
@@ -846,7 +863,7 @@ function resetForm(){
 function openAdd(prefill){
   editing=null; resetForm();
   $("addTitle").innerHTML='Nouvelle <span class="gold-i">envie</span>'; $("addSubmit").textContent="Ajouter à ma collection";
-  if(prefill){ $("url").value=prefill.url||""; if(prefill.title) $("title").value=prefill.title; }
+  if(prefill){ $("url").value=prefill.url||""; if(prefill.title){ $("title").value=prefill.title; aiTitle=prefill.title; } if(prefill.caption) $("caption").value=prefill.caption; }
   renderCatPick(); renderDraftThumb(); updateDetected(); openSheet("addOverlay"); aiAutoUrl=""; autoAi();
 }
 function openEdit(v){
@@ -1147,13 +1164,36 @@ function renderSettings(){
     return `<div class="catrow">
       <span class="name"><span class="dot" style="background:${col}"></span>${esc(c)} <span class="sub">· ${n}</span></span>
       <span class="swatches">${PALETTE.map((p,i)=>`<button type="button" class="sw" data-color="${p}" data-cat="${esc(c)}" aria-label="${PALETTE_NAMES[i]}" aria-pressed="${p===col}" style="background:${p}"></button>`).join("")}</span>
-      <button class="btn danger" type="button" data-delcat="${esc(c)}" style="min-height:38px">Supprimer</button>
+      <span style="display:flex;gap:8px"><button class="btn ghost" type="button" data-rencat="${esc(c)}" style="min-height:38px">Renommer</button>
+      <button class="btn danger" type="button" data-delcat="${esc(c)}" style="min-height:38px">Supprimer</button></span>
     </div>`;
   }).join("") || `<p class="sub">Aucune catégorie.</p>`;
+}
+function doRename(from, raw){
+  const to = String(raw||"").replace(/\s+/g," ").trim().slice(0,40);
+  if(!to || to===from){ renderSettings(); return; }
+  if(to===UNCAT){ showMsg("Ce nom est réservé.","err","backupMsg"); renderSettings(); return; }
+  const exist = catNames().find(c=>c.toLowerCase()===to.toLowerCase() && c!==from);
+  const target = exist || to;
+  if(exist && !confirm("« "+exist+" » existe déjà. Fusionner « "+from+" » dedans ?")){ renderSettings(); return; }
+  const c = state.categories.find(x=>x.name===from);
+  queue({t:"cren", from, to:target, position: c ? c.position : catPosition(), color: c ? c.color : nextColor()});
+  renderSettings(); if(!$("addOverlay").hidden) renderCatPick();
 }
 $("catlist").addEventListener("click",e=>{
   const sw=e.target.closest("[data-color]");
   if(sw){ const name=sw.dataset.cat; if(state.categories.some(c=>c.name===name)) queue({t:"ccolor",name,color:sw.dataset.color}); else queue({t:"cput",name,position:catPosition(),color:sw.dataset.color}); return; }
+  const rn=e.target.closest("[data-rencat]");
+  if(rn){
+    const row=rn.closest(".catrow"), old=rn.dataset.rencat, nameEl=row.querySelector(".name");
+    nameEl.innerHTML=`<input class="field" maxlength="40" style="min-height:38px;padding:6px 10px;width:13em;max-width:100%" aria-label="Nouveau nom">`;
+    const inp=nameEl.querySelector("input"); inp.value=old; inp.focus(); inp.select();
+    rn.textContent="OK"; rn.removeAttribute("data-rencat"); rn.dataset.okcat=old;
+    inp.addEventListener("keydown",ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); doRename(old, inp.value); } if(ev.key==="Escape") renderSettings(); });
+    return;
+  }
+  const ok=e.target.closest("[data-okcat]");
+  if(ok){ doRename(ok.dataset.okcat, ok.closest(".catrow").querySelector("input").value); return; }
   const d=e.target.closest("[data-delcat]");
   if(d){ const c=d.dataset.delcat; if(ui.cat===c) ui.cat=""; queue({t:"cdel",name:c}); }
 });
@@ -1187,7 +1227,8 @@ function autoAi(){
   clearTimeout(aiTimer);
   if(!aiWorkerUrl || editing) return;
   const raw = extractUrl($("url").value)||"";
-  if(!raw || raw===aiAutoUrl || parseLink(raw).error || $("title").value.trim()) return;
+  const t = $("title").value.trim();
+  if(!raw || raw===aiAutoUrl || parseLink(raw).error || (t && t!==aiTitle)) return;
   aiTimer = setTimeout(()=>{ aiAutoUrl = raw; runAi(true); }, 500);
 }
 async function runAi(auto){
@@ -1279,7 +1320,7 @@ $("importFile").addEventListener("change",async e=>{
 });
 (function(){
   const app = location.origin + location.pathname;
-  $("bookmarklet").href = "javascript:(function(){window.open('"+app+"?url='+encodeURIComponent(location.href)+'&title='+encodeURIComponent(document.title),'_blank');})();";
+  $("bookmarklet").href = "javascript:(function(){window.open('"+app+"?url='+encodeURIComponent(location.href)+'&title='+encodeURIComponent(document.title)+'&caption='+encodeURIComponent(String(getSelection()).slice(0,1500)),'_blank');})();";
   $("bookmarklet").addEventListener("click",e=>{ e.preventDefault(); showMsg("Glisse ce bouton dans ta barre de favoris plutôt que de cliquer dessus.","ok","backupMsg"); });
 })();
 
@@ -1292,8 +1333,9 @@ function readShare(){
   const url = extractUrl(p.get("url")) || extractUrl(p.get("text")) || extractUrl(p.get("title"));
   if(!url) return;
   let guess = (p.get("title") || (p.get("text")||"").replace(url,"")).replace(/\s+/g," ").trim();
-  guess = guess.replace(/\s*[-|•]\s*(YouTube|TikTok|Instagram|Facebook)\s*$/i,"");
-  pendingShare = {url, title: /^https?:/i.test(guess) ? "" : guess.slice(0,90)};
+  guess = guess.replace(/^\(\d+\)\s*/,"").replace(/\s*[-|•]\s*(YouTube|TikTok|Instagram|Facebook)\s*$/i,"");
+  if(/^(facebook|instagram|tiktok|youtube|reels?|watch|vid[ée]os?)$/i.test(guess)) guess = "";
+  pendingShare = {url, title: /^https?:/i.test(guess) ? "" : guess.slice(0,90), caption: (p.get("caption")||"").trim().slice(0,1500)};
   history.replaceState(null,"",location.pathname);
 }
 function showShare(){
@@ -1301,7 +1343,7 @@ function showShare(){
   const s = pendingShare; pendingShare = null;
   const info = parseLink(s.url);
   $("sharedBanner").hidden=false;
-  $("sharedBanner").textContent = "Lien reçu"+(info.platform?" depuis "+PLAT[info.platform]:"")+". Choisis la catégorie puis ajoute.";
+  $("sharedBanner").textContent = "Lien reçu"+(info.platform?" depuis "+PLAT[info.platform]:"")+(aiWorkerUrl ? ". L'IA propose un titre et une catégorie : vérifie, puis ajoute." : ". Choisis la catégorie puis ajoute.");
   openAdd(s);
 }
 
