@@ -170,7 +170,7 @@ textarea.field{resize:vertical;min-height:48px}
 .steps b{font-family:var(--f-display);font-style:italic;font-weight:500;color:var(--gold);width:14px}
 
 /* Réglages */
-.catrow{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid #1F1C22}
+.catrow{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #1F1C22}
 .catrow .name{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere}
 .swatches{display:flex;gap:6px;flex-wrap:wrap}
 .sw{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
@@ -1163,9 +1163,9 @@ function renderSettings(){
     const col=catColor(c), n=state.videos.filter(v=>v.category===c).length;
     return `<div class="catrow">
       <span class="name"><span class="dot" style="background:${col}"></span>${esc(c)} <span class="sub">· ${n}</span></span>
-      <span class="swatches">${PALETTE.map((p,i)=>`<button type="button" class="sw" data-color="${p}" data-cat="${esc(c)}" aria-label="${PALETTE_NAMES[i]}" aria-pressed="${p===col}" style="background:${p}"></button>`).join("")}</span>
-      <span style="display:flex;gap:8px"><button class="btn ghost" type="button" data-rencat="${esc(c)}" style="min-height:38px">Renommer</button>
+      <span style="display:flex;gap:8px;flex-shrink:0"><button class="btn ghost" type="button" data-rencat="${esc(c)}" style="min-height:38px">Renommer</button>
       <button class="btn danger" type="button" data-delcat="${esc(c)}" style="min-height:38px">Supprimer</button></span>
+      <span class="swatches" style="flex-basis:100%">${PALETTE.map((p,i)=>`<button type="button" class="sw" data-color="${p}" data-cat="${esc(c)}" aria-label="${PALETTE_NAMES[i]}" aria-pressed="${p===col}" style="background:${p}"></button>`).join("")}</span>
     </div>`;
   }).join("") || `<p class="sub">Aucune catégorie.</p>`;
 }
