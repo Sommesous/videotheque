@@ -79,7 +79,8 @@ textarea.field{resize:vertical;min-height:48px}
 .searchbar{display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px}
 .searchbar .row{display:flex;gap:8px;flex-wrap:wrap}
 .searchbar select{flex:1 1 120px;min-width:0;border:1px solid var(--line2);border-radius:10px;background:var(--bg);padding:9px 10px;font-size:14px}
-.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+.chips{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px}
+.chip.zero{opacity:.5}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:999px;padding:0 14px;min-height:38px;font-size:13.5px;cursor:pointer;white-space:nowrap}
 .chip .n{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}
@@ -744,6 +745,11 @@ function catNames(){
   if(state.videos.some(v=>v.category===UNCAT)) s.push(UNCAT);
   return s;
 }
+// Les catégories les plus remplies d'abord, puis par ordre alphabétique ; les vides à la fin.
+function sortCats(names, counts){
+  return [...names].sort((a,b)=>((counts[b]||0)-(counts[a]||0)) || (a===UNCAT)-(b===UNCAT) || a.localeCompare(b,"fr",{sensitivity:"base"}));
+}
+function catCounts(){ const c={}; state.videos.forEach(v=>c[v.category]=(c[v.category]||0)+1); return c; }
 const isDemo = () => state.videos.length===0;
 const listed = () => isDemo() ? DEMO : state.videos;
 function findVideo(id){ return state.videos.find(v=>v.id===id) || DEMO.find(v=>v.id===id); }
@@ -789,8 +795,8 @@ function render(){
 
   const counts = {}; list.forEach(v=>counts[v.category]=(counts[v.category]||0)+1);
   $("chips").innerHTML = `<button type="button" class="chip all" data-c="" aria-pressed="${ui.cat===""}">Tout · <span class="n">${list.length}</span></button>` +
-    cats.filter(c=>counts[c] || c!==UNCAT).map(c=>{ const col=catColor(c);
-      return `<button type="button" class="chip" data-c="${esc(c)}" aria-pressed="${ui.cat===c}" style="--chip:${col}"><span class="dot" style="background:${col}"></span>${esc(c)} <span class="n">${counts[c]||0}</span></button>`; }).join("");
+    sortCats(cats.filter(c=>counts[c] || c!==UNCAT), counts).map(c=>{ const col=catColor(c);
+      return `<button type="button" class="chip${counts[c]?"":" zero"}" data-c="${esc(c)}" aria-pressed="${ui.cat===c}" style="--chip:${col}"><span class="dot" style="background:${col}"></span>${esc(c)} <span class="n">${counts[c]||0}</span></button>`; }).join("");
 
   const q = ui.q.toLowerCase();
   const hay = v => [v.title,v.note,v.ingredients,v.price,v.address,v.category].filter(Boolean).join(" ").toLowerCase();
@@ -842,7 +848,7 @@ function setFormKind(k){
 function renderCatPick(){
   const names = catNames().filter(c=>c!==UNCAT);
   if(formCat && !names.includes(formCat) && formCat!==UNCAT) names.push(formCat);
-  $("catPick").innerHTML = names.map(c=>{ const col=catColor(c);
+  $("catPick").innerHTML = sortCats(names, catCounts()).map(c=>{ const col=catColor(c);
     return `<button type="button" class="chip" data-pick="${esc(c)}" aria-pressed="${c===formCat}" style="--chip:${col}"><span class="dot" style="background:${col}"></span>${esc(c)}</button>`; }).join("")
     + `<button type="button" class="chip ghost" id="newCatBtn">+ Nouvelle</button>`;
 }
@@ -1158,7 +1164,7 @@ $("thumbSave").addEventListener("click",saveThumb);
    Réglages
    ========================================================= */
 function renderSettings(){
-  const names = catNames().filter(c=>c!==UNCAT);
+  const names = sortCats(catNames().filter(c=>c!==UNCAT), catCounts());
   $("catlist").innerHTML = names.map(c=>{
     const col=catColor(c), n=state.videos.filter(v=>v.category===c).length;
     return `<div class="catrow">
